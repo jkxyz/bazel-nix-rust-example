@@ -22,10 +22,10 @@ This repository gives Nix ownership of the native build environment and Bazel ow
 
 - `rust-toolchain` is rust-overlay's flake-locked stable release with Cargo, Clippy, rust-analyzer, rust-src, rustfmt, rustc, rustdoc, and the native standard library.
 - `bazel-cc-toolchain` places the native Nix compiler wrapper and LLD in one `bin` directory.
-- The development shell exports `NIX_RUST_TOOLCHAIN`, `NIX_BASH`, `CC`, and `CXX` as Nix store paths. On Linux it also exports `BAZEL_LINKOPTS` with an RPATH to the selected libstdc++ runtime.
+- The development shell exports `NIX_RUST_TOOLCHAIN`, `CC`, and `CXX` as Nix store paths. On Linux it also exports `BAZEL_LINKOPTS` with an RPATH to the selected libstdc++ runtime.
 - The `ci` shell uses the same Rust release's minimal profile plus Clippy and rustfmt. It deliberately omits rust-analyzer and rust-src.
 
-[`nix/extensions.bzl`](nix/extensions.bzl) is the small Rust-specific bridge. It validates the compiler reported by `NIX_RUST_TOOLCHAIN`, links that derivation's existing `bin/` and `lib/` trees into a Bazel repository, and generates the `rules_rust` declarations from [`nix/rust_toolchain.BUILD.bazel.tpl`](nix/rust_toolchain.BUILD.bazel.tpl). It does not copy, relocate, patch, or archive compiler files.
+[`nix/rust_toolchain.bzl`](nix/rust_toolchain.bzl) is the small Rust-specific bridge. It validates the compiler reported by `NIX_RUST_TOOLCHAIN`, links that derivation's existing `bin/` and `lib/` trees into a Bazel repository, and generates the `rules_rust` declarations from [`nix/rust_toolchain.BUILD.bazel.tpl`](nix/rust_toolchain.BUILD.bazel.tpl). It does not copy, relocate, patch, or archive compiler files.
 
 C/C++ needs no custom repository rule. `rules_cc` performs its standard local configuration using `CC`. Because LLD is beside the compiler wrapper, the probe selects it and produces link options equivalent to:
 
@@ -38,8 +38,6 @@ C/C++ needs no custom repository rule. `rules_cc` performs its standard local co
 `rules_rust` consumes that resolved C/C++ toolchain for native linking, so Rust receives the same compiler and `-fuse-ld=lld`. This fixes the gold-linker warning at the C/C++ toolchain boundary rather than adding unrelated Rust-only linker configuration.
 
 On Linux, the shell's `BAZEL_LINKOPTS` is consumed directly by `rules_cc` during local toolchain configuration. The generated toolchain therefore records the flake-selected libstdc++ RPATH, allowing both C++ and Rust binaries to load that runtime without relying on the host environment.
-
-The registered Nix Bash toolchain lets `rules_rust` materialize its bootstrap process wrapper inside Bazel's sandbox. It is the only other integration detail.
 
 ## Build and run
 

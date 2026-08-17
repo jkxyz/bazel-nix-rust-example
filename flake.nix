@@ -70,16 +70,14 @@
             # the flake lock or profile changes the store path and invalidates
             # the repository.
             NIX_RUST_TOOLCHAIN = rust;
-            NIX_BASH = "${pkgs.bash}/bin/bash";
 
             # rules_cc's local configuration records these in the generated
             # toolchain. Nix's GCC runtime is not in the host loader's default
             # search path, so Linux executables need its store path as RPATH.
             BAZEL_LINKOPTS = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-Wl,-rpath,${pkgs.lib.getLib pkgs.stdenv.cc.cc}/lib";
 
-            # rules_cc's standard local configuration treats CC as its
-            # compiler-selection interface. Set these after the standard shell
-            # hooks, which otherwise normalize them back to gcc and g++.
+            # The standard shell hooks overwrite CC and CXX, so select the
+            # compiler after those hooks have run.
             shellHook = ''
               export CC="${bazelCcToolchain}/bin/cc"
               export CXX="${bazelCcToolchain}/bin/c++"

@@ -2,9 +2,7 @@
 
 visibility("//")
 
-_REPOSITORY_NAME = "nix_rust_toolchain"
 _RUST_ROOT_ENV = "NIX_RUST_TOOLCHAIN"
-_SHELL_ENV = "NIX_BASH"
 
 _HOSTS = {
     "aarch64-apple-darwin": {
@@ -27,19 +25,13 @@ _HOSTS = {
     },
 }
 
-def _nix_rust_toolchain_repository_impl(repository_ctx):
+def _nix_rust_toolchain_impl(repository_ctx):
     rust_root = repository_ctx.os.environ.get(_RUST_ROOT_ENV)
     if not rust_root:
         fail("{} is not set. Run Bazel from `nix develop`.".format(_RUST_ROOT_ENV))
-    shell = repository_ctx.os.environ.get(_SHELL_ENV)
-    if not shell:
-        fail("{} is not set. Run Bazel from `nix develop`.".format(_SHELL_ENV))
-
     rustc = repository_ctx.path(rust_root + "/bin/rustc")
     if not rustc.exists:
         fail("{} does not contain bin/rustc: {}".format(_RUST_ROOT_ENV, rust_root))
-    if not repository_ctx.path(shell).exists:
-        fail("{} does not name an executable: {}".format(_SHELL_ENV, shell))
 
     version_result = repository_ctx.execute(
         [rustc, "--version", "--verbose"],
@@ -72,38 +64,19 @@ def _nix_rust_toolchain_repository_impl(repository_ctx):
     repository_ctx.symlink(rust_root + "/lib", "lib")
     repository_ctx.template(
         "BUILD.bazel",
-        repository_ctx.attr.build_template,
+        repository_ctx.path(Label("//nix:rust_toolchain.BUILD.bazel.tpl")),
         substitutions = {
             "%{CPU}": host["cpu"],
             "%{DYLIB_EXT}": host["dylib_ext"],
             "%{OS}": host["os"],
-            "%{RUST_STDLIB_LINKFLAGS}": repr(host["stdlib_linkflags"]),
+            "%{RUST_STDLIB_LINKFLAGS}": "\n".join(["        {},".format(repr(flag)) for flag in host["stdlib_linkflags"]]),
             "%{RUST_TRIPLE}": host_triple,
             "%{RUST_VERSION}": rust_version,
-            "%{SHELL}": shell,
         },
     )
 
-_nix_rust_toolchain_repository = repository_rule(
-    implementation = _nix_rust_toolchain_repository_impl,
-    attrs = {
-        "build_template": attr.label(allow_single_file = True, mandatory = True),
-    },
+nix_rust_toolchain = repository_rule(
+    implementation = _nix_rust_toolchain_impl,
     configure = True,
-    environ = [
-        _RUST_ROOT_ENV,
-        _SHELL_ENV,
-    ],
-)
-
-def _nix_rust_impl(_module_ctx):
-    _nix_rust_toolchain_repository(
-        name = _REPOSITORY_NAME,
-        build_template = "//nix:rust_toolchain.BUILD.bazel.tpl",
-    )
-
-nix_rust = module_extension(
-    implementation = _nix_rust_impl,
-    arch_dependent = True,
-    os_dependent = True,
+    environ = [_RUST_ROOT_ENV],
 )

@@ -1,9 +1,5 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary")
 
-exports_files([
-    "flake.lock",
-])
-
 rust_binary(
     name = "hello_world",
     srcs = ["src/main.rs"],

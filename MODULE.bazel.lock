@@ -196,21 +196,6 @@
   },
   "selectedYankedVersions": {},
   "moduleExtensions": {
-    "//nix:extensions.bzl%nix_rust": {
-      "os:linux,arch:amd64": {
-        "bzlTransitiveDigest": "GQfj9gki51KNOj0RNwRfcc/4WoDpr+z8ihOln7pJB4w=",
-        "usagesDigest": "eAoZK4hb3M1QVBJBFmi7vxg8/WaeF1Y8ah9GZN5rNB8=",
-        "recordedInputs": [],
-        "generatedRepoSpecs": {
-          "nix_rust_toolchain": {
-            "repoRuleId": "@@//nix:extensions.bzl%_nix_rust_toolchain_repository",
-            "attributes": {
-              "build_template": "@@//nix:rust_toolchain.BUILD.bazel.tpl"
-            }
-          }
-        }
-      }
-    },
     "@@pybind11_bazel+//:internal_configure.bzl%internal_configure_extension": {
       "general": {
         "bzlTransitiveDigest": "b+RP7Sgl8KN0VHamrgTqzGLuYPcQ/Mo4ptNkkHUIIlA=",

@@ -4,42 +4,8 @@ load(
     "rust_toolchain",
     "rustfmt_toolchain",
 )
-load("@bazel_tools//tools/sh:sh_toolchain.bzl", "sh_toolchain")
 
 package(default_visibility = ["//visibility:private"])
-
-sh_toolchain(
-    name = "sh_toolchain_impl",
-    path = "%{SHELL}",
-)
-
-toolchain(
-    name = "sh_toolchain",
-    exec_compatible_with = ["@platforms//os:%{OS}"],
-    toolchain = ":sh_toolchain_impl",
-    toolchain_type = "@bazel_tools//tools/sh:toolchain_type",
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "cargo",
-    srcs = ["bin/cargo"],
-)
-
-filegroup(
-    name = "cargo_clippy",
-    srcs = ["bin/cargo-clippy"],
-)
-
-filegroup(
-    name = "clippy_driver",
-    srcs = ["bin/clippy-driver"],
-)
-
-filegroup(
-    name = "rustc",
-    srcs = ["bin/rustc"],
-)
 
 filegroup(
     name = "rustc_lib",
@@ -54,16 +20,6 @@ filegroup(
         ],
         allow_empty = True,
     ),
-)
-
-filegroup(
-    name = "rustdoc",
-    srcs = ["bin/rustdoc"],
-)
-
-filegroup(
-    name = "rustfmt",
-    srcs = ["bin/rustfmt"],
 )
 
 rust_stdlib_filegroup(
@@ -84,29 +40,30 @@ rust_stdlib_filegroup(
 rust_toolchain(
     name = "rust_toolchain_impl",
     binary_ext = "",
-    cargo = ":cargo",
-    cargo_clippy = ":cargo_clippy",
+    cargo = "bin/cargo",
+    cargo_clippy = "bin/cargo-clippy",
     channel = "stable",
-    clippy_driver = ":clippy_driver",
+    clippy_driver = "bin/clippy-driver",
     default_edition = "2024",
     dylib_ext = "%{DYLIB_EXT}",
     exec_triple = "%{RUST_TRIPLE}",
-    rust_doc = ":rustdoc",
+    rust_doc = "bin/rustdoc",
     rust_std = ":rust_std",
-    rustc = ":rustc",
+    rustc = "bin/rustc",
     rustc_lib = ":rustc_lib",
-    rustfmt = ":rustfmt",
     staticlib_ext = ".a",
-    stdlib_linkflags = %{RUST_STDLIB_LINKFLAGS},
+    stdlib_linkflags = [
+%{RUST_STDLIB_LINKFLAGS}
+    ],
     target_triple = "%{RUST_TRIPLE}",
     version = "%{RUST_VERSION}",
 )
 
 rustfmt_toolchain(
     name = "rustfmt_toolchain_impl",
-    rustc = ":rustc",
+    rustc = "bin/rustc",
     rustc_lib = ":rustc_lib",
-    rustfmt = ":rustfmt",
+    rustfmt = "bin/rustfmt",
 )
 
 toolchain(

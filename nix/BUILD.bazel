@@ -1,9 +1,6 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 
-exports_files([
-    "rust_toolchain.BUILD.bazel.tpl",
-    "smoke_test.sh",
-])
+exports_files(["rust_toolchain.BUILD.bazel.tpl"])
 
 # Makes the shell-selected native C/C++ toolchain observable.
 cc_binary(

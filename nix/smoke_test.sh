@@ -4,15 +4,13 @@ set -o errexit -o nounset -o pipefail
 repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 : "${NIX_RUST_TOOLCHAIN:?Run this test from nix develop}"
-: "${NIX_BASH:?Run this test from nix develop}"
 : "${CC:?Run this test from nix develop}"
 
 test -x "$NIX_RUST_TOOLCHAIN/bin/rustc"
-test -x "$NIX_BASH"
 test -x "$CC"
 
-case "$NIX_RUST_TOOLCHAIN:$NIX_BASH:$CC" in
-  /nix/store/*:/nix/store/*:/nix/store/*) ;;
+case "$NIX_RUST_TOOLCHAIN:$CC" in
+  /nix/store/*:/nix/store/*) ;;
   *)
     echo "the supported build tools must come from the Nix store" >&2
     exit 1
@@ -26,33 +24,38 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Keep external repositories under this workspace-local output base. Shared
+# repository-cache symlinks may point outside Bazel's sandbox.
 bazel \
   --output_base="$temporary_root/bazel" \
   build \
+  --repo_contents_cache= \
   //:hello_world \
   //nix:cc_toolchain_smoke
 bazel \
   --output_base="$temporary_root/bazel" \
   build \
+  --repo_contents_cache= \
   --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect \
   --output_groups=clippy_checks \
   //:hello_world
 bazel \
   --output_base="$temporary_root/bazel" \
   build \
+  --repo_contents_cache= \
   --aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect \
   --output_groups=rustfmt_checks \
   //:hello_world
-bazel --output_base="$temporary_root/bazel" run //:hello_world
-bazel --output_base="$temporary_root/bazel" run //nix:cc_toolchain_smoke
+bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= //:hello_world
+bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= //nix:cc_toolchain_smoke
 
 rust_command=$(
   bazel --output_base="$temporary_root/bazel" \
-    aquery 'mnemonic("Rustc", //:hello_world)' --output=commands
+    aquery --repo_contents_cache= 'mnemonic("Rustc", //:hello_world)' --output=commands
 )
 cc_link_command=$(
   bazel --output_base="$temporary_root/bazel" \
-    aquery 'mnemonic("CppLink", //nix:cc_toolchain_smoke)' --output=commands
+    aquery --repo_contents_cache= 'mnemonic("CppLink", //nix:cc_toolchain_smoke)' --output=commands
 )
 
 case "$rust_command" in

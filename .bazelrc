@@ -1,7 +1,0 @@
-# The supported build environment is `nix develop`. rules_cc intentionally
-# configures its native toolchain from the CC selected by that shell.
-common --enable_platform_specific_config
-
-# Materialize rules_rust's bootstrap process wrapper through the registered
-# Nix shell toolchain instead of an output-base-absolute symlink.
-build --@rules_rust//rust/settings:experimental_use_sh_toolchain_for_bootstrap_process_wrapper=true

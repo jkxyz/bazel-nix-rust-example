@@ -2,16 +2,14 @@ bazel_dep(name = "rules_rust", version = "0.73.0")
 bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "platforms", version = "1.1.0")
 
-# The Nix development shell exposes its aggregate Rust derivation directly to
-# this small repository rule. C/C++ uses rules_cc's standard local toolchain
-# discovery through the shell's CC variable.
-nix_rust = use_extension("//nix:extensions.bzl", "nix_rust")
-use_repo(nix_rust, "nix_rust_toolchain")
+# The Nix shell exposes its Rust derivation directly to this repository rule.
+nix_rust_toolchain = use_repo_rule("//nix:rust_toolchain.bzl", "nix_rust_toolchain")
+
+nix_rust_toolchain(name = "nix_rust_toolchain")
 
 register_toolchains(
     "@nix_rust_toolchain//:rust_toolchain",
     "@nix_rust_toolchain//:rustfmt_toolchain",
-    "@nix_rust_toolchain//:sh_toolchain",
 )
 
 crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
