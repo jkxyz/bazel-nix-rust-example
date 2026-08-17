@@ -1,200 +1,302 @@
 {
-  ccWrapper,
-  flakeLock,
-  system ? builtins.currentSystem,
+  pkgs,
+  rust,
+  relocateElf,
+  relocateMacho,
 }:
 let
-  lock = builtins.fromJSON (builtins.readFile (builtins.toPath flakeLock));
-  rootNode = lock.nodes.${lock.root};
+  inherit (pkgs) lib;
 
-  lockedInput =
-    name:
-    let
-      nodeName = rootNode.inputs.${name};
-    in
-    lock.nodes.${nodeName}.locked;
-
-  fetchLockedGitHub =
-    source:
-    assert source.type == "github";
-    builtins.fetchTarball {
-      url = "https://github.com/${source.owner}/${source.repo}/archive/${source.rev}.tar.gz";
-      sha256 = source.narHash;
+  platforms = {
+    x86_64-linux = {
+      os = "linux";
+      bazelCpu = "x86_64";
+      rustTriple = "x86_64-unknown-linux-gnu";
+      dynamicLinker = "/lib64/ld-linux-x86-64.so.2";
+      loaderName = "ld-linux-x86-64.so.2";
+      elfFormat = "elf64-x86-64";
     };
-
-  nixpkgs = fetchLockedGitHub (lockedInput "nixpkgs");
-  rust-overlay = fetchLockedGitHub (lockedInput "rust-overlay");
-
-  pkgs = import nixpkgs {
-    inherit system;
-    overlays = [ (import rust-overlay) ];
+    aarch64-linux = {
+      os = "linux";
+      bazelCpu = "aarch64";
+      rustTriple = "aarch64-unknown-linux-gnu";
+      dynamicLinker = "/lib/ld-linux-aarch64.so.1";
+      loaderName = "ld-linux-aarch64.so.1";
+      elfFormat = "elf64-littleaarch64";
+    };
+    aarch64-darwin = {
+      os = "macos";
+      bazelCpu = "aarch64";
+      rustTriple = "aarch64-apple-darwin";
+    };
   };
 
-  rust = pkgs.rust-bin.stable.latest.minimal.override {
-    extensions = [ "rustfmt" ];
-  };
+  platform =
+    platforms.${pkgs.stdenv.hostPlatform.system}
+      or (throw "portable-toolchain: unsupported host ${pkgs.stdenv.hostPlatform.system}; supported hosts are ${lib.concatStringsSep ", " (builtins.attrNames platforms)}");
+  isLinux = platform.os == "linux";
+  isDarwin = platform.os == "macos";
+
   clang = pkgs.llvmPackages.clang-unwrapped;
   llvm = pkgs.llvmPackages.llvm;
+  lld = pkgs.llvmPackages.lld;
   gcc = pkgs.stdenv.cc.cc;
-  gccLib = pkgs.stdenv.cc.cc.lib;
-  staticCc = pkgs.pkgsStatic.stdenv.cc;
-  ccWrapperSource = builtins.path {
-    path = builtins.toPath ccWrapper;
-    name = "portable_cc_wrapper.c";
+  gccLib = lib.getLib gcc;
+  libcxx = pkgs.llvmPackages.libcxx;
+
+  elfRelocator = builtins.path {
+    path = builtins.toPath relocateElf;
+    name = "relocate-elf.sh";
   };
-  hostTriple = "x86_64-unknown-linux-gnu";
-in
-assert pkgs.stdenv.hostPlatform.system == "x86_64-linux";
-pkgs.runCommand "bazel-portable-sdk"
-  {
-    nativeBuildInputs = [
-      pkgs.binutils
-      pkgs.coreutils
-      pkgs.findutils
-      pkgs.gnused
-      pkgs.gnutar
-      pkgs.gzip
-      pkgs.patchelf
-      pkgs.ripgrep
-    ];
-  }
-  ''
-    set -o errexit -o nounset -o pipefail
+  machoRelocator = builtins.path {
+    path = builtins.toPath relocateMacho;
+    name = "relocate-macho.sh";
+  };
 
-    sdk="$TMPDIR/sdk"
-    mkdir -p "$sdk/bin" "$sdk/lib" "$sdk/sysroot/usr/include" "$sdk/sysroot/usr/lib"
+  runtimeRoots = [
+    rust
+    clang
+    clang.lib
+    llvm
+    llvm.lib
+    lld
+    gccLib
+    (lib.getLib pkgs.libffi)
+    (lib.getLib pkgs.libxml2)
+    (lib.getLib pkgs.zlib)
+    (lib.getLib pkgs.zstd)
+    (lib.getLib pkgs.ncurses)
+  ];
 
-    # Copy dereferenced files. The resulting archive must not depend on Nix's
-    # symlink targets after Bazel extracts it on another machine.
-    cp -L ${rust}/bin/rustc "$sdk/bin/rustc"
-    cp -L ${rust}/bin/rustdoc "$sdk/bin/rustdoc"
-    cp -L ${rust}/bin/rustfmt "$sdk/bin/rustfmt"
-    cp -aL ${rust}/lib/. "$sdk/lib/"
-    chmod -R u+w "$sdk/lib"
-    rm -rf "$sdk/lib/rustlib"
-    mkdir -p "$sdk/lib/rustlib/${hostTriple}"
-    cp -aL ${rust}/lib/rustlib/${hostTriple}/. "$sdk/lib/rustlib/${hostTriple}/"
+  nativeBuildInputs = [
+    pkgs.coreutils
+    pkgs.findutils
+    pkgs.gawk
+    pkgs.gnugrep
+    pkgs.gnused
+    pkgs.gnutar
+    pkgs.gzip
+    pkgs.nukeReferences
+    pkgs.ripgrep
+  ]
+  ++ lib.optionals isLinux [
+    pkgs.binutils
+    pkgs.patchelf
+  ]
+  ++ lib.optionals isDarwin [
+    pkgs.darwin.autoSignDarwinBinariesHook
+    pkgs.darwin.cctools
+    pkgs.file
+  ];
 
-    clang_resource_dir="$(${clang}/bin/clang -print-resource-dir)"
-    mkdir -p "$sdk/lib/clang/current"
-    cp -aL "$clang_resource_dir/include" "$sdk/lib/clang/current/"
-    cp -L ${clang}/bin/clang "$sdk/bin/clang.real"
-    cp -L ${pkgs.lld}/bin/ld.lld "$sdk/bin/ld.lld"
-    cp -L ${llvm}/bin/llvm-ar "$sdk/bin/llvm-ar"
-    cp -L ${llvm}/bin/llvm-cov "$sdk/bin/llvm-cov"
-    cp -L ${llvm}/bin/llvm-dwp "$sdk/bin/llvm-dwp"
-    cp -L ${llvm}/bin/llvm-nm "$sdk/bin/llvm-nm"
-    cp -L ${llvm}/bin/llvm-objcopy "$sdk/bin/llvm-objcopy"
-    cp -L ${llvm}/bin/llvm-objdump "$sdk/bin/llvm-objdump"
-    cp -L ${llvm}/bin/llvm-strip "$sdk/bin/llvm-strip"
+  sdk =
+    pkgs.runCommand "portable-sdk-${pkgs.stdenv.hostPlatform.system}"
+      {
+        inherit nativeBuildInputs;
+        allowedReferences = [ ];
+        dontPatchShebangs = true;
+        dontStrip = true;
+      }
+      ''
+        set -o errexit -o nounset -o pipefail
 
-    # These shared objects are the execution-time dependencies of rustc,
-    # Clang, LLD, and the LLVM utilities. They live beside one another so a
-    # short $ORIGIN RPATH is sufficient after relocation.
-    cp -aL ${clang.lib}/lib/libclang-cpp.so* "$sdk/lib/"
-    cp -aL ${llvm.lib}/lib/libLLVM.so* "$sdk/lib/"
-    cp -aL ${gccLib}/lib/libgcc_s.so* "$sdk/lib/"
-    cp -aL ${gccLib}/lib/libstdc++.so* "$sdk/lib/"
-    cp -aL ${pkgs.libffi}/lib/libffi.so* "$sdk/lib/"
-    cp -aL ${pkgs.libxml2.out}/lib/libxml2.so* "$sdk/lib/"
-    cp -aL ${pkgs.zlib}/lib/libz.so* "$sdk/lib/"
+        sdk=$out
+        mkdir -p "$sdk/bin" "$sdk/lib" "$sdk/lib/clang/current" "$sdk/sysroot"
 
-    # Clang's target sysroot is a declared toolchain input, not the worker's
-    # /usr. It includes glibc headers/start files and the GCC support files and
-    # C++ headers that Clang discovers through --gcc-toolchain.
-    cp -aL ${pkgs.glibc.dev}/include/. "$sdk/sysroot/usr/include/"
-    cp -aL ${pkgs.glibc}/lib/*.a "$sdk/sysroot/usr/lib/"
-    cp -aL ${pkgs.glibc}/lib/*.o "$sdk/sysroot/usr/lib/"
-    cp -aL ${pkgs.glibc}/lib/*.so* "$sdk/sysroot/usr/lib/"
-    chmod -R u+w "$sdk/sysroot"
-    cp -aL ${gcc}/include/c++ "$sdk/sysroot/usr/include/"
-    gcc_target_dir="$sdk/sysroot/usr/lib/gcc/${hostTriple}/${gcc.version}"
-    mkdir -p "$gcc_target_dir"
-    cp -aL ${gcc}/lib/gcc/${hostTriple}/${gcc.version}/crtbegin*.o "$gcc_target_dir/"
-    cp -aL ${gcc}/lib/gcc/${hostTriple}/${gcc.version}/crtend*.o "$gcc_target_dir/"
-    cp -aL ${gcc}/lib/gcc/${hostTriple}/${gcc.version}/libgcc.a "$gcc_target_dir/"
-    cp -aL ${gcc}/lib/gcc/${hostTriple}/${gcc.version}/libgcc_eh.a "$gcc_target_dir/"
-    cp -aL ${gccLib}/lib/libgcc_s.so* "$sdk/sysroot/usr/lib/"
-    cp -aL ${gccLib}/lib/libstdc++.so* "$sdk/sysroot/usr/lib/"
+        # Only the components named here enter the SDK. In particular, Cargo,
+        # Clippy, rust-analyzer, and rust-src belong to the development profile,
+        # not to Bazel's transport artifact.
+        for tool in rustc rustdoc rustfmt; do
+          install -Dm755 "${rust}/bin/$tool" "$sdk/bin/$tool"
+        done
+        cp -aL ${rust}/lib/. "$sdk/lib/"
+        chmod -R u+w "$sdk/lib"
+        rm -rf "$sdk/lib/rustlib"
+        mkdir -p "$sdk/lib/rustlib/${platform.rustTriple}"
+        cp -aL ${rust}/lib/rustlib/${platform.rustTriple}/. "$sdk/lib/rustlib/${platform.rustTriple}/"
 
-    # Nixpkgs' glibc linker scripts name their store paths explicitly. The
-    # equivalent local names let LLD resolve them through the sysroot search
-    # path instead.
-    cat >"$sdk/sysroot/usr/lib/libc.so" <<'EOF'
-    OUTPUT_FORMAT(elf64-x86-64)
-    GROUP ( libc.so.6 libc_nonshared.a AS_NEEDED ( ld-linux-x86-64.so.2 ) )
-    EOF
-    cat >"$sdk/sysroot/usr/lib/libm.so" <<'EOF'
-    OUTPUT_FORMAT(elf64-x86-64)
-    GROUP ( libm.so.6 AS_NEEDED ( libmvec.so.1 ) )
-    EOF
+        clang_resource_dir=$(${clang}/bin/clang -print-resource-dir)
+        cp -aL "$clang_resource_dir/include" "$sdk/lib/clang/current/"
+        install -Dm755 ${clang}/bin/clang "$sdk/bin/clang"
 
-    # A tiny static launcher computes paths from its invocation path, with
-    # /proc/self/exe as a fallback. Unlike the Nix GCC wrapper it has no
-    # store-bound shebang or embedded compiler path.
-    ${staticCc}/bin/${staticCc.targetPrefix}cc \
-      -O2 -static -Wall -Wextra -Werror \
-      ${ccWrapperSource} \
-      -o "$sdk/bin/clang"
+        for tool in llvm-ar llvm-cov llvm-dwp llvm-nm llvm-objcopy llvm-objdump llvm-strip; do
+          install -Dm755 "${llvm}/bin/$tool" "$sdk/bin/$tool"
+        done
+        ${lib.optionalString isLinux ''
+          install -Dm755 ${lld}/bin/ld.lld "$sdk/bin/ld.lld"
+        ''}
+        ${lib.optionalString isDarwin ''
+          install -Dm755 ${lld}/bin/ld64.lld "$sdk/bin/ld64.lld"
+        ''}
 
-    # Before changing ELF interpreters, prove the path-computing launcher and
-    # bundled sysroot can drive a complete C compile and link in Nix's sandbox.
-    printf '%s\n' 'int main(void) { return 0; }' > "$TMPDIR/smoke.c"
-    "$sdk/bin/clang" "$TMPDIR/smoke.c" -o "$TMPDIR/smoke"
-    test -s "$TMPDIR/smoke"
+        ${lib.optionalString isLinux ''
+          mkdir -p "$sdk/sysroot/usr/include" "$sdk/sysroot/usr/lib"
+          cp -aL ${pkgs.glibc.dev}/include/. "$sdk/sysroot/usr/include/"
+          cp -aL ${pkgs.glibc}/lib/*.a "$sdk/sysroot/usr/lib/"
+          cp -aL ${pkgs.glibc}/lib/*.o "$sdk/sysroot/usr/lib/"
+          cp -aL ${pkgs.glibc}/lib/*.so* "$sdk/sysroot/usr/lib/"
+          chmod -R u+w "$sdk/sysroot"
+          cp -aL ${gcc}/include/c++ "$sdk/sysroot/usr/include/"
 
-    chmod -R u+w "$sdk"
+          gcc_triple=$(${gcc}/bin/gcc -dumpmachine)
+          gcc_version=$(${gcc}/bin/gcc -dumpfullversion)
+          gcc_source_dir=$(dirname "$(${gcc}/bin/gcc -print-file-name=crtbegin.o)")
+          gcc_target_dir="$sdk/sysroot/usr/lib/gcc/$gcc_triple/$gcc_version"
+          mkdir -p "$gcc_target_dir"
+          for pattern in crtbegin\*.o crtend\*.o libgcc.a libgcc_eh.a libstdc++.a libsupc++.a; do
+            for file in "$gcc_source_dir"/$pattern; do
+              test -e "$file" && cp -aL "$file" "$gcc_target_dir/"
+            done
+          done
+          cp -aL ${gccLib}/lib/libgcc_s.so* "$sdk/sysroot/usr/lib/"
+          cp -aL ${gccLib}/lib/libstdc++.so* "$sdk/sysroot/usr/lib/"
 
-    # Patch only host tools. Files in sysroot/ are target inputs and retain
-    # their normal ABI metadata.
-    while IFS= read -r -d $'\0' file; do
-      if patchelf --print-rpath "$file" >/dev/null 2>&1; then
-        case "$file" in
-          "$sdk"/bin/*)
-            patchelf --set-rpath '$ORIGIN/../lib' "$file"
-            ;;
-          *)
-            patchelf --set-rpath '$ORIGIN:$ORIGIN/..:$ORIGIN/../..:$ORIGIN/../../..:$ORIGIN/../../../..' "$file"
-            ;;
-        esac
-        if patchelf --print-interpreter "$file" >/dev/null 2>&1; then
-          patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 "$file"
+          # Nixpkgs' glibc linker scripts contain producer-store paths. These
+          # equivalent scripts resolve entirely inside --sysroot.
+          printf '%s\n' \
+            'OUTPUT_FORMAT(${platform.elfFormat})' \
+            'GROUP ( libc.so.6 libc_nonshared.a AS_NEEDED ( ${platform.loaderName} ) )' \
+            > "$sdk/sysroot/usr/lib/libc.so"
+          printf '%s\n' \
+            'OUTPUT_FORMAT(${platform.elfFormat})' \
+            'GROUP ( libm.so.6 AS_NEEDED ( libmvec.so.1 ) )' \
+            > "$sdk/sysroot/usr/lib/libm.so"
+
+          printf '%s\n' \
+            '--target=${platform.rustTriple}' \
+            '--sysroot=<CFGDIR>/../sysroot' \
+            '-resource-dir=<CFGDIR>/../lib/clang/current' \
+            '--gcc-toolchain=<CFGDIR>/../sysroot/usr' \
+            '-B<CFGDIR>' \
+            '-fuse-ld=lld' \
+            '$-Wl,--dynamic-linker=${platform.dynamicLinker}' \
+            > "$sdk/bin/clang.cfg"
+
+          gcc_version_metadata=$gcc_version
+          cxx_includes="lib/clang/current/include;sysroot/usr/include;sysroot/usr/include/c++/$gcc_version;sysroot/usr/include/c++/$gcc_version/$gcc_triple"
+        ''}
+
+        ${lib.optionalString isDarwin ''
+          cp -aL ${pkgs.apple-sdk.sdkroot}/. "$sdk/sysroot/"
+          chmod -R u+w "$sdk/sysroot"
+          if test -d ${lib.getDev libcxx}/include/c++/v1; then
+            mkdir -p "$sdk/sysroot/usr/include/c++"
+            cp -aL ${lib.getDev libcxx}/include/c++/v1 "$sdk/sysroot/usr/include/c++/"
+          fi
+
+          printf '%s\n' \
+            '--target=${platform.rustTriple}' \
+            '-isysroot' \
+            '<CFGDIR>/../sysroot' \
+            '-resource-dir=<CFGDIR>/../lib/clang/current' \
+            '-stdlib=libc++' \
+            '-B<CFGDIR>' \
+            '-fuse-ld=lld' \
+            > "$sdk/bin/clang.cfg"
+
+          gcc_version_metadata=none
+          cxx_includes='lib/clang/current/include;sysroot/usr/include;sysroot/usr/include/c++/v1'
+        ''}
+
+        chmod -R u+w "$sdk"
+
+        # Before relocation, the copied tools still have their producer-store
+        # runtime metadata. Use that one opportunity to exercise both complete
+        # compile-and-link paths against the newly assembled relative SDK.
+        printf '%s\n' 'int main(void) { return 0; }' > "$TMPDIR/smoke.c"
+        printf '%s\n' '#include <vector>' 'int main() { std::vector<int> v{1}; return v[0] - 1; }' > "$TMPDIR/smoke.cc"
+        printf '%s\n' 'fn main() {}' > "$TMPDIR/smoke.rs"
+        "$sdk/bin/clang" "$TMPDIR/smoke.c" -o "$TMPDIR/smoke-c"
+        "$sdk/bin/clang" "$TMPDIR/smoke.cc" -l${if isLinux then "stdc++" else "c++"} -o "$TMPDIR/smoke-cc"
+        "$sdk/bin/rustc" "$TMPDIR/smoke.rs" -C "linker=$sdk/bin/clang" -o "$TMPDIR/smoke-rust"
+        test -s "$TMPDIR/smoke-c" -a -s "$TMPDIR/smoke-cc" -a -s "$TMPDIR/smoke-rust"
+        rust_version=$("$sdk/bin/rustc" --version | cut -d' ' -f2)
+
+        ${lib.optionalString isLinux ''
+          ${pkgs.bash}/bin/bash ${elfRelocator} \
+            "$sdk" ${lib.escapeShellArg platform.dynamicLinker} \
+            ${lib.escapeShellArgs (map toString runtimeRoots)}
+        ''}
+        ${lib.optionalString isDarwin ''
+          ${pkgs.bash}/bin/bash ${machoRelocator} \
+            "$sdk" ${
+              lib.escapeShellArgs (
+                map toString (
+                  [
+                    rust
+                    clang.lib
+                    llvm.lib
+                    lld
+                  ]
+                  ++ [
+                    (lib.getLib pkgs.libffi)
+                    (lib.getLib pkgs.libxml2)
+                    (lib.getLib pkgs.zlib)
+                    (lib.getLib pkgs.zstd)
+                    (lib.getLib pkgs.ncurses)
+                  ]
+                )
+              )
+            }
+        ''}
+
+        # nuke-refs is the standard Nix-aware pass (including arm64 Darwin
+        # signing support). Replace its non-existent sentinel prefix as well so
+        # the unpacked artifact contains no textual /nix/store path at all.
+        find "$sdk" -type f -exec nuke-refs {} +
+        find "$sdk" -type f -exec sed -i 's#/nix/store/#/nope/path/#g' {} +
+        if rg --text --files-with-matches '/nix/store/' "$sdk"; then
+          echo 'portable SDK still contains a Nix store path' >&2
+          exit 1
         fi
-      fi
-    done < <(find "$sdk/bin" "$sdk/lib" -type f -print0)
 
-    # Rust and LLVM artifacts can contain store paths outside ELF RPATHs. A
-    # same-length invalid prefix prevents accidental fallback to the producer's
-    # Nix store without changing binary offsets. rustc then derives its sysroot
-    # from its relocated executable.
-    find "$sdk" -type f -exec sed -i 's#/nix/store/#/nope/path/#g' {} +
+        printf '%s\n' \
+          'format = 2' \
+          'system = ${pkgs.stdenv.hostPlatform.system}' \
+          'os = ${platform.os}' \
+          'cpu = ${platform.bazelCpu}' \
+          'rust_triple = ${platform.rustTriple}' \
+          "rust = $rust_version" \
+          'clang = ${clang.version}' \
+          "gcc = $gcc_version_metadata" \
+          'binary_ext = ' \
+          'staticlib_ext = .a' \
+          'dylib_ext = ${if isLinux then ".so" else ".dylib"}' \
+          'libc = ${if isLinux then "glibc" else "macos"}' \
+          'cxx_stdlib = ${if isLinux then "stdc++" else "c++"}' \
+          "cxx_includes = $cxx_includes" \
+          'rust_stdlib_linkflags = ${if isLinux then "-ldl;-lpthread" else "-lSystem;-lresolv"}' \
+          'linker = ${if isLinux then "bin/ld.lld" else "bin/ld64.lld"}' \
+          > "$sdk/TOOLCHAIN-METADATA"
 
-    if rg --text --files-with-matches '/nix/store/' "$sdk"; then
-      echo "portable SDK still contains a Nix store reference" >&2
-      exit 1
-    fi
+        (
+          cd "$sdk"
+          find . -type f ! -name SDK-MANIFEST.tsv -print0 \
+            | LC_ALL=C sort -z \
+            | while IFS= read -r -d $'\0' file; do
+                size=$(stat -c %s "$file" 2>/dev/null || stat -f %z "$file")
+                printf '%s\t%s\t%s\n' "''${file#./}" "$size" "$(sha256sum "$file" | cut -d' ' -f1)"
+              done > SDK-MANIFEST.tsv
+        )
+      '';
 
-    # The Nix build sandbox intentionally has no /lib64. Invoke its bundled
-    # loader for this build-time check; after extraction Bazel exercises the
-    # conventional interpreter path embedded above.
-    loader="$sdk/sysroot/usr/lib/ld-linux-x86-64.so.2"
-    run_host_tool() {
-      "$loader" --library-path "$sdk/lib:$sdk/sysroot/usr/lib" "$@"
-    }
-    run_host_tool "$sdk/bin/rustc" --version --verbose
-    test "$(run_host_tool "$sdk/bin/rustc" --print sysroot)" = "$sdk"
-    run_host_tool "$sdk/bin/clang.real" --version
-    run_host_tool "$sdk/bin/ld.lld" --version
-
-    mkdir -p "$out"
-    printf '%s\n' \
-      'format = 1' \
-      'host = ${hostTriple}' \
-      'clang = ${clang.version}' \
-      'gcc = ${gcc.version}' \
-      "rust = $(run_host_tool "$sdk/bin/rustc" --version | cut -d' ' -f2)" \
-      > "$sdk/TOOLCHAIN-METADATA"
-    LC_ALL=C tar --sort=name --mtime=@1 --owner=0 --group=0 --numeric-owner \
-      -C "$sdk" -cf - . | gzip -n > "$out/portable-sdk.tar.gz"
-    cp "$sdk/TOOLCHAIN-METADATA" "$out/TOOLCHAIN-METADATA"
-  ''
+  archive =
+    pkgs.runCommand "portable-toolchain-${pkgs.stdenv.hostPlatform.system}"
+      {
+        nativeBuildInputs = [
+          pkgs.gnutar
+          pkgs.gzip
+        ];
+        allowedReferences = [ ];
+      }
+      ''
+        set -o errexit -o nounset -o pipefail
+        mkdir -p "$out"
+        LC_ALL=C tar --sort=name --mtime=@1 --owner=0 --group=0 --numeric-owner \
+          -C ${sdk} -cf - . | gzip -n > "$out/portable-sdk.tar.gz"
+        cp ${sdk}/TOOLCHAIN-METADATA ${sdk}/SDK-MANIFEST.tsv "$out/"
+      '';
+in
+{
+  inherit archive platform sdk;
+}

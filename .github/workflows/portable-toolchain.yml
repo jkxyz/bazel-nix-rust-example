@@ -1,0 +1,26 @@
+name: Portable toolchain
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  smoke:
+    name: ${{ matrix.system }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+          - system: aarch64-darwin
+            runner: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+      - name: Build and smoke-test the portable SDK
+        run: nix develop .#ci --command bash nix/smoke_test.sh

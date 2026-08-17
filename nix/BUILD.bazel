@@ -1,5 +1,7 @@
 exports_files([
-    "portable_cc_wrapper.c",
     "portable_toolchain.BUILD.bazel.tpl",
     "portable_toolchain.nix",
+    "relocate_elf.sh",
+    "relocate_macho.sh",
+    "smoke_test.sh",
 ])

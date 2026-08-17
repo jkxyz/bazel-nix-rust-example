@@ -198,7 +198,7 @@
   "moduleExtensions": {
     "//nix:extensions.bzl%nix_toolchains": {
       "os:linux,arch:amd64": {
-        "bzlTransitiveDigest": "1XQ+TqkOHokdovJ+OA5gCXXcW+vL/Pk6KMO6CzggAzA=",
+        "bzlTransitiveDigest": "49CfkbCN8FSdcOqtg6skv37anTe7eMLA3rZobF9eh9A=",
         "usagesDigest": "29519ACg0uP68rDqGSKRBgfZ5PGjkJ4wfgd/f91GFLk=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
@@ -206,9 +206,13 @@
             "repoRuleId": "@@//nix:extensions.bzl%_nix_portable_toolchain_repository",
             "attributes": {
               "build_template": "@@//nix:portable_toolchain.BUILD.bazel.tpl",
-              "cc_wrapper": "@@//nix:portable_cc_wrapper.c",
-              "flake_lock": "@@//:flake.lock",
-              "nix_expression": "@@//nix:portable_toolchain.nix"
+              "flake": "@@//:flake.nix",
+              "sources": [
+                "@@//:flake.lock",
+                "@@//nix:portable_toolchain.nix",
+                "@@//nix:relocate_elf.sh",
+                "@@//nix:relocate_macho.sh"
+              ]
             }
           }
         }
