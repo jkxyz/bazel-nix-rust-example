@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -o errexit -o nounset -o pipefail
 
-repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
 : "${NIX_RUST_TOOLCHAIN:?Run this test from nix develop}"
 : "${CC:?Run this test from nix develop}"
@@ -31,7 +31,7 @@ bazel \
   build \
   --repo_contents_cache= \
   //:hello_world \
-  //nix:cc_toolchain_smoke
+  //bazel/toolchains:cc_toolchain_smoke
 bazel \
   --output_base="$temporary_root/bazel" \
   build \
@@ -47,7 +47,7 @@ bazel \
   --output_groups=rustfmt_checks \
   //:hello_world
 bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= //:hello_world
-bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= //nix:cc_toolchain_smoke
+bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= //bazel/toolchains:cc_toolchain_smoke
 
 rust_command=$(
   bazel --output_base="$temporary_root/bazel" \
@@ -55,7 +55,7 @@ rust_command=$(
 )
 cc_link_command=$(
   bazel --output_base="$temporary_root/bazel" \
-    aquery --repo_contents_cache= 'mnemonic("CppLink", //nix:cc_toolchain_smoke)' --output=commands
+    aquery --repo_contents_cache= 'mnemonic("CppLink", //bazel/toolchains:cc_toolchain_smoke)' --output=commands
 )
 rust_linker=$(
   printf '%s\n' "$rust_command" \

@@ -64,7 +64,7 @@ def _nix_rust_toolchain_impl(repository_ctx):
     repository_ctx.symlink(rust_root + "/lib", "lib")
     repository_ctx.template(
         "BUILD.bazel",
-        repository_ctx.path(Label("//nix:rust_toolchain.BUILD.bazel.tpl")),
+        repository_ctx.path(Label("//bazel/toolchains:rust_toolchain.BUILD.bazel.tpl")),
         substitutions = {
             "%{CPU}": host["cpu"],
             "%{DYLIB_EXT}": host["dylib_ext"],

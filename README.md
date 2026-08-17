@@ -25,7 +25,7 @@ This repository gives Nix ownership of the native build environment and Bazel ow
 - The development shell exports `NIX_RUST_TOOLCHAIN`, `CC`, and `CXX` as Nix store paths. On Linux it also exports `BAZEL_LINKOPTS` with an RPATH to the selected libstdc++ runtime.
 - The `ci` shell uses the same Rust release's minimal profile plus Clippy and rustfmt. It deliberately omits rust-analyzer and rust-src.
 
-[`nix/rust_toolchain.bzl`](nix/rust_toolchain.bzl) is the small Rust-specific bridge. It validates the compiler reported by `NIX_RUST_TOOLCHAIN`, links that derivation's existing `bin/` and `lib/` trees into a Bazel repository, and generates the `rules_rust` declarations from [`nix/rust_toolchain.BUILD.bazel.tpl`](nix/rust_toolchain.BUILD.bazel.tpl). It does not copy, relocate, patch, or archive compiler files.
+[`bazel/toolchains/rust.bzl`](bazel/toolchains/rust.bzl) is the small Rust-specific bridge. It validates the compiler reported by `NIX_RUST_TOOLCHAIN`, links that derivation's existing `bin/` and `lib/` trees into a Bazel repository, and generates the `rules_rust` declarations from [`bazel/toolchains/rust_toolchain.BUILD.bazel.tpl`](bazel/toolchains/rust_toolchain.BUILD.bazel.tpl). It does not copy, relocate, patch, or archive compiler files.
 
 C/C++ needs no custom repository rule. `rules_cc` performs its standard local configuration using `CC`. Because LLD is beside the compiler wrapper, the probe selects it and produces link options equivalent to:
 
@@ -45,9 +45,9 @@ Enter the environment before invoking Bazel:
 
 ```console
 nix develop
-bazel build //:hello_world //nix:cc_toolchain_smoke
+bazel build //:hello_world //bazel/toolchains:cc_toolchain_smoke
 bazel run //:hello_world
-bazel run //nix:cc_toolchain_smoke
+bazel run //bazel/toolchains:cc_toolchain_smoke
 ```
 
 Or run a single command without entering an interactive shell:
@@ -66,7 +66,7 @@ Inspect the selected link commands with:
 
 ```console
 bazel aquery 'mnemonic("Rustc", //:hello_world)' --output=commands
-bazel aquery 'mnemonic("CppLink", //nix:cc_toolchain_smoke)' --output=commands
+bazel aquery 'mnemonic("CppLink", //bazel/toolchains:cc_toolchain_smoke)' --output=commands
 ```
 
 Rust and C++ should name the same resolved linker. On Linux that is `/nix/store/...-bazel-cc-toolchain/bin/cc`, and both commands should also contain `-fuse-ld=lld`. On macOS, `rules_cc` places its generated `cc_wrapper.sh` in front of the Nix compiler.
@@ -76,7 +76,7 @@ Rust and C++ should name the same resolved linker. On Linux that is `/nix/store/
 CI runs the same strong local check on x86-64 Linux, ARM64 Linux, and Apple Silicon macOS:
 
 ```console
-nix develop .#ci --command bash nix/smoke_test.sh
+nix develop .#ci --command bash bazel/toolchains/smoke_test.sh
 ```
 
 The script starts with a fresh Bazel output base, builds and runs both languages, runs the Clippy and rustfmt aspects, and inspects the resolved link commands. On Linux it fails unless both Rust and C++ select LLD.

@@ -3,7 +3,7 @@ bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "platforms", version = "1.1.0")
 
 # The Nix shell exposes its Rust derivation directly to this repository rule.
-nix_rust_toolchain = use_repo_rule("//nix:rust_toolchain.bzl", "nix_rust_toolchain")
+nix_rust_toolchain = use_repo_rule("//bazel/toolchains:rust.bzl", "nix_rust_toolchain")
 
 nix_rust_toolchain(name = "nix_rust_toolchain")
 
