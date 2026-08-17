@@ -1,6 +1,7 @@
 {
   pkgs,
   rust,
+  linuxRuntimeLauncher,
   relocateElf,
   relocateMacho,
 }:
@@ -43,6 +44,12 @@ let
   gcc = pkgs.stdenv.cc.cc;
   gccLib = lib.getLib gcc;
   libcxx = pkgs.llvmPackages.libcxx;
+  staticCc = pkgs.pkgsStatic.stdenv.cc;
+
+  linuxRuntimeLauncherSource = builtins.path {
+    path = builtins.toPath linuxRuntimeLauncher;
+    name = "linux-runtime-launcher.c";
+  };
 
   elfRelocator = builtins.path {
     path = builtins.toPath relocateElf;
@@ -167,7 +174,9 @@ let
             '--sysroot=<CFGDIR>/../sysroot' \
             '-resource-dir=<CFGDIR>/../lib/clang/current' \
             '--gcc-toolchain=<CFGDIR>/../sysroot/usr' \
-            '-B<CFGDIR>' \
+            '-B<CFGDIR>/../bin' \
+            '-ccc-install-dir' \
+            '<CFGDIR>/../bin' \
             '-fuse-ld=lld' \
             '$-Wl,--dynamic-linker=${platform.dynamicLinker}' \
             > "$sdk/bin/clang.cfg"
@@ -177,8 +186,65 @@ let
         ''}
 
         ${lib.optionalString isDarwin ''
-          cp -aL ${pkgs.apple-sdk.sdkroot}/. "$sdk/sysroot/"
+          # Apple SDKs contain intentional symlink cycles (notably ncurses
+          # compatibility aliases). Preserve those links instead of trying to
+          # dereference them into an ordinary directory tree.
+          cp -a ${pkgs.apple-sdk.sdkroot}/. "$sdk/sysroot/"
           chmod -R u+w "$sdk/sysroot"
+
+          # nixpkgs augments the upstream SDK with a small number of absolute
+          # links to headers in other derivations. Materialize only those
+          # store-backed links; recursively dereferencing the whole SDK would
+          # reintroduce the native symlink-cycle failure above.
+          materialized_store_link=1
+          while test "$materialized_store_link" = 1; do
+            materialized_store_link=0
+            while IFS= read -r -d $'\0' link; do
+              target=$(readlink "$link")
+              case "$target" in
+                /nix/store/*)
+                  materialized_store_link=1
+                  rm -- "$link"
+                  if test -d "$target"; then
+                    mkdir -p "$link"
+                    cp -a "$target"/. "$link"/
+                    chmod -R u+w "$link"
+                  elif test -e "$target"; then
+                    cp -aL "$target" "$link"
+                    chmod u+w "$link"
+                  else
+                    echo "Apple SDK has a broken Nix store symlink: $link -> $target" >&2
+                    exit 1
+                  fi
+                  ;;
+              esac
+            done < <(find "$sdk/sysroot" -type l -print0)
+          done
+
+          while IFS= read -r -d $'\0' link; do
+            target=$(readlink "$link")
+            case "$target" in
+              /nix/store/*)
+                echo "Apple SDK symlink retains a Nix store path: $link -> $target" >&2
+                exit 1
+                ;;
+              /*)
+                echo "Apple SDK symlink is not self-contained: $link -> $target" >&2
+                exit 1
+                ;;
+              *)
+                resolved=$(realpath -m "$(dirname "$link")/$target")
+                case "$resolved" in
+                  "$sdk"|"$sdk"/*) ;;
+                  *)
+                    echo "Apple SDK symlink escapes the portable SDK: $link -> $target" >&2
+                    exit 1
+                    ;;
+                esac
+                ;;
+            esac
+          done < <(find "$sdk/sysroot" -type l -print0)
+
           if test -d ${lib.getDev libcxx}/include/c++/v1; then
             mkdir -p "$sdk/sysroot/usr/include/c++"
             cp -aL ${lib.getDev libcxx}/include/c++/v1 "$sdk/sysroot/usr/include/c++/"
@@ -216,6 +282,28 @@ let
           ${pkgs.bash}/bin/bash ${elfRelocator} \
             "$sdk" ${lib.escapeShellArg platform.dynamicLinker} \
             ${lib.escapeShellArgs (map toString runtimeRoots)}
+
+          # patchelf cannot safely rewrite the dynamic loader itself. Install
+          # a pristine copy after relocating the ordinary host tools.
+          install -Dm755 ${pkgs.glibc}/lib/${platform.loaderName} "$sdk/lib/${platform.loaderName}"
+
+          # The kernel cannot resolve a relative PT_INTERP. Keep the relocated
+          # dynamic tools in libexec and expose static launchers which invoke
+          # the SDK's own glibc loader and library closure by relative paths.
+          ${staticCc}/bin/${staticCc.targetPrefix}cc \
+            -std=c11 -Os -static -s -fno-ident -Wall -Wextra -Werror \
+            -Wl,--build-id=none \
+            ${lib.escapeShellArg "-ffile-prefix-map=${linuxRuntimeLauncherSource}=linux-runtime-launcher.c"} \
+            ${lib.escapeShellArg "-DLOADER_NAME=\"${platform.loaderName}\""} \
+            ${linuxRuntimeLauncherSource} \
+            -o "$TMPDIR/linux-runtime-launcher"
+          mkdir -p "$sdk/libexec"
+          cp "$sdk/bin/clang.cfg" "$sdk/libexec/clang.cfg"
+          for tool in rustc rustdoc rustfmt clang llvm-ar llvm-cov llvm-dwp llvm-nm llvm-objcopy llvm-objdump llvm-strip ld.lld; do
+            mv "$sdk/bin/$tool" "$sdk/libexec/$tool"
+            install -Dm755 "$TMPDIR/linux-runtime-launcher" "$sdk/bin/$tool"
+          done
+
         ''}
         ${lib.optionalString isDarwin ''
           ${pkgs.bash}/bin/bash ${machoRelocator} \
@@ -271,11 +359,19 @@ let
 
         (
           cd "$sdk"
-          find . -type f ! -name SDK-MANIFEST.tsv -print0 \
+          export LC_ALL=C
+          find . \( -type f -o -type l \) ! -name SDK-MANIFEST.tsv -print0 \
             | LC_ALL=C sort -z \
             | while IFS= read -r -d $'\0' file; do
-                size=$(stat -c %s "$file" 2>/dev/null || stat -f %z "$file")
-                printf '%s\t%s\t%s\n' "''${file#./}" "$size" "$(sha256sum "$file" | cut -d' ' -f1)"
+                if test -L "$file"; then
+                  target=$(readlink "$file")
+                  size=''${#target}
+                  digest=$(printf '%s' "$target" | sha256sum | cut -d' ' -f1)
+                else
+                  size=$(stat -c %s "$file" 2>/dev/null || stat -f %z "$file")
+                  digest=$(sha256sum "$file" | cut -d' ' -f1)
+                fi
+                printf '%s\t%s\t%s\n' "''${file#./}" "$size" "$digest"
               done > SDK-MANIFEST.tsv
         )
       '';

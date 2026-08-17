@@ -26,7 +26,7 @@ The flake deliberately separates selection from profiles:
 - `rust-toolchain` is the full interactive profile used by the default development shell. It adds Clippy, rust-analyzer, rust-src, and rustfmt.
 - `portable-toolchain-tree` is the audited, unpacked native SDK. It starts from the same Rust release's minimal profile and adds only rustfmt.
 - `portable-toolchain` is the deterministic compressed form consumed by Bazel.
-- `devShells.bazel` contains Bazel but not the full developer Rust profile. This is what CI uses.
+- `devShells.ci` contains Bazel but not the full developer Rust profile. This is what CI uses.
 
 Changing `flake.lock` changes the shared Rust release selection for both the developer shell and Bazel. There is no second Rust version in `MODULE.bazel` and no developer machine compiler discovery.
 
@@ -42,15 +42,17 @@ The platform-specific assembly is small and explicit:
 
 | Host | Native ABI and SDK work |
 | --- | --- |
-| x86_64 Linux | glibc/GCC sysroot, `/lib64/ld-linux-x86-64.so.2`, ELF RPATH relocation |
-| ARM64 Linux | glibc/GCC sysroot, `/lib/ld-linux-aarch64.so.1`, ELF RPATH relocation |
-| Apple Silicon macOS | pinned Apple SDK and libc++, Mach-O install names/RPATHs, ad-hoc signing where required |
+| x86_64 Linux | glibc/GCC sysroot, bundled `ld-linux-x86-64.so.2`, ELF RPATH relocation, static runtime launcher |
+| ARM64 Linux | glibc/GCC sysroot, bundled `ld-linux-aarch64.so.1`, ELF RPATH relocation, static runtime launcher |
+| Apple Silicon macOS | pinned Apple SDK with self-contained symlinks, libc++, Mach-O install names/RPATHs, ad-hoc signing where required |
 
-[`nix/relocate_elf.sh`](nix/relocate_elf.sh) and [`nix/relocate_macho.sh`](nix/relocate_macho.sh) compute host-tool runtime dependencies and rewrite them to SDK-relative locations. Nix's `nuke-refs` removes remaining producer references, then the build rejects any remaining textual `/nix/store/` path. The ELF and Mach-O target sysroots themselves remain data; only executable host tools are relocated.
+[`nix/relocate_elf.sh`](nix/relocate_elf.sh) and [`nix/relocate_macho.sh`](nix/relocate_macho.sh) compute host-tool runtime dependencies and rewrite them to SDK-relative locations. The Apple SDK copy preserves its native relative symlinks while materializing nixpkgs-added store links as ordinary files. Nix's `nuke-refs` removes remaining producer references, then the build rejects any remaining textual `/nix/store/` path. The ELF and Mach-O target sysroots themselves remain data; only executable host tools are relocated.
 
-## Why there is no compiler wrapper
+## Compiler configuration and Linux runtime launcher
 
-Clang supports portable configuration files with paths relative to the configuration file. The SDK's `bin/clang.cfg` supplies the target, sysroot, resource directory, GCC installation where applicable, and LLD selection using `<CFGDIR>`. This replaces the former Linux-only static C launcher.
+Clang supports portable configuration files with paths relative to the configuration file. The SDK's `bin/clang.cfg` supplies the target, sysroot, resource directory, GCC installation where applicable, and LLD selection using `<CFGDIR>`.
+
+Linux ELF interpreters are absolute `PT_INTERP` paths, so RPATH relocation alone would still select the worker's glibc loader and could mix the worker's libc with Nix-built LLVM libraries. [`nix/linux_runtime_launcher.c`](nix/linux_runtime_launcher.c) is compiled statically for each Linux host. Every exported tool uses that launcher to find the SDK relative to `/proc/self/exe` and invoke its real binary from `libexec` with the SDK's own loader and libraries. macOS tools run directly because Mach-O supports relative `@loader_path` metadata.
 
 When Clang runs inside Bazel, [`nix/extensions.bzl`](nix/extensions.bzl) generates equivalent execroot-relative location flags for compile actions. That keeps dependency files stable and lets Bazel validate SDK headers. Link actions continue to use the relocatable Clang configuration. No shell script sits between Bazel and Clang.
 
@@ -62,9 +64,9 @@ Enter the full development shell for normal work:
 
 ```console
 nix develop
-bazel build //:hello_world //:cc_toolchain_smoke
+bazel build //:hello_world //nix:cc_toolchain_smoke
 bazel run //:hello_world
-bazel run //:cc_toolchain_smoke
+bazel run //nix:cc_toolchain_smoke
 ```
 
 Cargo uses the same flake-pinned Rust release through the shell:
@@ -87,7 +89,7 @@ tar -tzf result/portable-sdk.tar.gz
 Run the same test as CI:
 
 ```console
-nix develop .#bazel --command bash nix/smoke_test.sh
+nix develop .#ci --command bash nix/smoke_test.sh
 ```
 
 The script checks the SDK's empty Nix reference closure, scans the extracted archive for store paths and leaked repository files, starts Bazel with a fresh output base, hides or blocks `/nix/store` in every action sandbox, builds both the Rust and C++ targets, and runs them. The repository rule may use Nix during Bazel's client-side fetch phase; actions cannot.

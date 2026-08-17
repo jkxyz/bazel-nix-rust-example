@@ -2,7 +2,9 @@
 set -o errexit -o nounset -o pipefail
 
 repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-temporary_root=$(mktemp -d)
+# Some sandboxed environments give TMPDIR a deliberately small quota. Keep
+# Bazel's extracted SDK and output base on the checkout's filesystem instead.
+temporary_root=$(mktemp -d "$repository_root/.portable-smoke.XXXXXX")
 cleanup() {
   chmod -R u+w "$temporary_root" 2>/dev/null || true
   rm -rf -- "$temporary_root"
@@ -43,9 +45,9 @@ bazel \
   --repo_contents_cache= \
   "${sandbox_flags[@]}" \
   //:hello_world \
-  //:cc_toolchain_smoke
+  //nix:cc_toolchain_smoke
 bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= "${sandbox_flags[@]}" //:hello_world
-bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= "${sandbox_flags[@]}" //:cc_toolchain_smoke
+bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= "${sandbox_flags[@]}" //nix:cc_toolchain_smoke
 
 printf 'portable SDK smoke test passed (%s, %s compressed)\n' \
   "$(sed -n 's/^system = //p' "$archive/TOOLCHAIN-METADATA")" \

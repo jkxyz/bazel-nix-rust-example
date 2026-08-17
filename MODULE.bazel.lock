@@ -198,7 +198,7 @@
   "moduleExtensions": {
     "//nix:extensions.bzl%nix_toolchains": {
       "os:linux,arch:amd64": {
-        "bzlTransitiveDigest": "49CfkbCN8FSdcOqtg6skv37anTe7eMLA3rZobF9eh9A=",
+        "bzlTransitiveDigest": "PFjW/2xrVRQWHzal6w200kIngw5jGWa5847lYJ79s0A=",
         "usagesDigest": "29519ACg0uP68rDqGSKRBgfZ5PGjkJ4wfgd/f91GFLk=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
@@ -209,6 +209,7 @@
               "flake": "@@//:flake.nix",
               "sources": [
                 "@@//:flake.lock",
+                "@@//nix:linux_runtime_launcher.c",
                 "@@//nix:portable_toolchain.nix",
                 "@@//nix:relocate_elf.sh",
                 "@@//nix:relocate_macho.sh"

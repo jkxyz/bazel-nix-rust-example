@@ -184,6 +184,7 @@ def _nix_toolchains_impl(_module_ctx):
         flake = "//:flake.nix",
         sources = [
             "//:flake.lock",
+            "//nix:linux_runtime_launcher.c",
             "//nix:portable_toolchain.nix",
             "//nix:relocate_elf.sh",
             "//nix:relocate_macho.sh",

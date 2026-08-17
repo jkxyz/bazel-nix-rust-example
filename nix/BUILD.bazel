@@ -1,7 +1,17 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
 exports_files([
+    "linux_runtime_launcher.c",
     "portable_toolchain.BUILD.bazel.tpl",
     "portable_toolchain.nix",
     "relocate_elf.sh",
     "relocate_macho.sh",
     "smoke_test.sh",
 ])
+
+# Makes the C/C++ half of the portable SDK observable: Clang, LLD, libc,
+# libstdc++, and both families of bundled headers are required to build it.
+cc_binary(
+    name = "cc_toolchain_smoke",
+    srcs = ["cc_toolchain_smoke.cc"],
+)

@@ -38,6 +38,7 @@
             rust = rustRelease.minimal.override {
               extensions = [ "rustfmt" ];
             };
+            linuxRuntimeLauncher = ./nix/linux_runtime_launcher.c;
             relocateElf = ./nix/relocate_elf.sh;
             relocateMacho = ./nix/relocate_macho.sh;
           };

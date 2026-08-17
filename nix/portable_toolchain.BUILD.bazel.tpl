@@ -29,6 +29,7 @@ filegroup(
     name = "host_libraries",
     srcs = glob(
         [
+            "libexec/**",
             "lib/*.so*",
             "lib/*.dylib*",
             "lib/clang-runtime/**",
