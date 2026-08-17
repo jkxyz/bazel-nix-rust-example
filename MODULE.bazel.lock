@@ -198,7 +198,7 @@
   "moduleExtensions": {
     "//nix:extensions.bzl%nix_toolchains": {
       "os:linux,arch:amd64": {
-        "bzlTransitiveDigest": "1lOZawWz9i+dElcpLQ1aR7l3DRrLTvZaQ1HP4aSKqWM=",
+        "bzlTransitiveDigest": "mZbNhcy8sMzFZ7cuVJJqhpa2nsyoB7q7dbSR5Fdmc2c=",
         "usagesDigest": "29519ACg0uP68rDqGSKRBgfZ5PGjkJ4wfgd/f91GFLk=",
         "recordedInputs": [],
         "generatedRepoSpecs": {

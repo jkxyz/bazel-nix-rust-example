@@ -87,11 +87,16 @@ def _bazel_compile_flags(metadata, repository_path):
     # these location flags with execroot-relative spellings so dependency files
     # are stable and pass Bazel's absolute-include validation.
     flags = [
-        "--sysroot=" + repository_path + "/sysroot",
         "-resource-dir=" + repository_path + "/lib/clang/current",
         "-B" + repository_path + "/bin",
     ]
-    if metadata["os"] == "linux":
+    if metadata["os"] == "macos":
+        # Clang's Darwin driver uses -isysroot for header lookup. A later
+        # --sysroot does not override the absolute -isysroot from clang.cfg,
+        # which would leak sandbox-absolute header paths into dependency files.
+        flags = ["-isysroot", repository_path + "/sysroot"] + flags
+    else:
+        flags = ["--sysroot=" + repository_path + "/sysroot"] + flags
         flags.append("--gcc-toolchain=" + repository_path + "/sysroot/usr")
     return repr(flags)
 
