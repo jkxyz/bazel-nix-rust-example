@@ -231,20 +231,8 @@ let
           # Materializing nixpkgs' ncurses headers copies aliases such as
           # "ncurses -> ." into ordinary directories. They are harmless to
           # Clang, but Bazel follows directory symlinks while expanding the
-          # toolchain filegroup and would recurse forever. Remove any link
-          # that resolves to its own directory or one of its ancestors.
-          while IFS= read -r -d $'\0' link; do
-            target=$(readlink "$link")
-            link_dir=$(realpath -m "$(dirname "$link")")
-            resolved=$(realpath -m "$link_dir/$target")
-            case "$link_dir" in
-              "$resolved"|"$resolved"/*)
-                if test -d "$resolved"; then
-                  rm -- "$link"
-                fi
-                ;;
-            esac
-          done < <(find "$sdk/sysroot" -type l -print0)
+          # toolchain filegroup and would recurse forever.
+          find "$sdk/sysroot" -type l -lname . -delete
 
           while IFS= read -r -d $'\0' link; do
             target=$(readlink "$link")
