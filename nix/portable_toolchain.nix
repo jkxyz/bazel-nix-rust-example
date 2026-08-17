@@ -199,8 +199,6 @@ let
           cp -aL ${darwinLibcxx}/include/c++/v1 "$sdk/sysroot/usr/include/c++/"
           cp -a ${darwinLibcxx}/lib/. "$sdk/sysroot/usr/lib/"
 
-          chmod -R u+w "$sdk/sysroot"
-
           # nixpkgs augments the upstream SDK with a small number of absolute
           # links to headers in other derivations. Materialize only those
           # store-backed links; recursively dereferencing the whole SDK would
@@ -229,6 +227,24 @@ let
               esac
             done < <(find "$sdk/sysroot" -type l -print0)
           done
+
+          # Materializing nixpkgs' ncurses headers copies aliases such as
+          # "ncurses -> ." into ordinary directories. They are harmless to
+          # Clang, but Bazel follows directory symlinks while expanding the
+          # toolchain filegroup and would recurse forever. Remove any link
+          # that resolves to its own directory or one of its ancestors.
+          while IFS= read -r -d $'\0' link; do
+            target=$(readlink "$link")
+            link_dir=$(realpath -m "$(dirname "$link")")
+            resolved=$(realpath -m "$link_dir/$target")
+            case "$link_dir" in
+              "$resolved"|"$resolved"/*)
+                if test -d "$resolved"; then
+                  rm -- "$link"
+                fi
+                ;;
+            esac
+          done < <(find "$sdk/sysroot" -type l -print0)
 
           while IFS= read -r -d $'\0' link; do
             target=$(readlink "$link")
