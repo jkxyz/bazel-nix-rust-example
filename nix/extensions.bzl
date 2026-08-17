@@ -70,9 +70,13 @@ def _starlark_list(value):
         return "[]"
     return repr(value.split(";"))
 
-def _builtin_include_list(value, repository_path):
+def _builtin_include_list(value):
+    # Bazel resolves relative builtin-include paths against the package that
+    # owns the C++ toolchain configuration. Prefixing the external repository
+    # again produces a different path when dependency files are absolute, as
+    # they are with Clang's Darwin sysroot handling.
     return repr([
-        repository_path + "/" + path
+        path
         for path in value.split(";")
         if path
     ])
@@ -151,7 +155,7 @@ def _nix_portable_toolchain_repository_impl(repository_ctx):
             "%{BINARY_EXT}": metadata["binary_ext"],
             "%{BAZEL_COMPILE_FLAGS}": _bazel_compile_flags(metadata, repository_path),
             "%{CPU}": metadata["cpu"],
-            "%{CXX_INCLUDES}": _builtin_include_list(metadata["cxx_includes"], repository_path),
+            "%{CXX_INCLUDES}": _builtin_include_list(metadata["cxx_includes"]),
             "%{DYLIB_EXT}": metadata["dylib_ext"],
             "%{GCC_VERSION}": metadata["gcc"],
             "%{LIBC}": metadata["libc"],
