@@ -1,4 +1,4 @@
-name: Portable toolchain
+name: Nix/Bazel toolchains
 
 on:
   pull_request:
@@ -22,5 +22,5 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: cachix/install-nix-action@v31
-      - name: Build and smoke-test the portable SDK
+      - name: Build and smoke-test inside the minimal CI shell
         run: nix develop .#ci --command bash nix/smoke_test.sh

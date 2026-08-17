@@ -2,7 +2,7 @@
 #include <vector>
 
 int main() {
-    const std::vector<const char *> words = {"portable", " toolchain"};
+    const std::vector<const char *> words = {"Nix", "/Bazel toolchain"};
     for (const char *word : words) {
         std::cout << word;
     }

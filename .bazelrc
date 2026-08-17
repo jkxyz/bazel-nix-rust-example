@@ -1,8 +1,7 @@
-# The repository registers an explicit C/C++ toolchain. Avoid probing and
-# generating a second compiler configuration from the local host.
-common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+# The supported build environment is `nix develop`. rules_cc intentionally
+# configures its native toolchain from the CC selected by that shell.
+common --enable_platform_specific_config
 
-# rules_rust otherwise bootstraps its process wrapper as an absolute symlink
-# into Bazel's repository cache. Materializing it through the selected shell
-# toolchain keeps the action valid in Linux and macOS sandboxes.
+# Materialize rules_rust's bootstrap process wrapper through the registered
+# Nix shell toolchain instead of an output-base-absolute symlink.
 build --@rules_rust//rust/settings:experimental_use_sh_toolchain_for_bootstrap_process_wrapper=true

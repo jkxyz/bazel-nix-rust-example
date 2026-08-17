@@ -2,53 +2,96 @@
 set -o errexit -o nounset -o pipefail
 
 repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-# Some sandboxed environments give TMPDIR a deliberately small quota. Keep
-# Bazel's extracted SDK and output base on the checkout's filesystem instead.
-temporary_root=$(mktemp -d "$repository_root/.portable-smoke.XXXXXX")
+
+: "${NIX_RUST_TOOLCHAIN:?Run this test from nix develop}"
+: "${NIX_BASH:?Run this test from nix develop}"
+: "${CC:?Run this test from nix develop}"
+
+test -x "$NIX_RUST_TOOLCHAIN/bin/rustc"
+test -x "$NIX_BASH"
+test -x "$CC"
+
+case "$NIX_RUST_TOOLCHAIN:$NIX_BASH:$CC" in
+  /nix/store/*:/nix/store/*:/nix/store/*) ;;
+  *)
+    echo "the supported build tools must come from the Nix store" >&2
+    exit 1
+    ;;
+esac
+
+temporary_root=$(mktemp -d "$repository_root/.nix-bazel-smoke.XXXXXX")
 cleanup() {
   chmod -R u+w "$temporary_root" 2>/dev/null || true
   rm -rf -- "$temporary_root"
 }
 trap cleanup EXIT
 
-archive=$(nix build --no-link --print-out-paths "path:$repository_root#portable-toolchain")
-sdk=$(nix build --no-link --print-out-paths "path:$repository_root#portable-toolchain-tree")
+bazel \
+  --output_base="$temporary_root/bazel" \
+  build \
+  //:hello_world \
+  //nix:cc_toolchain_smoke
+bazel \
+  --output_base="$temporary_root/bazel" \
+  build \
+  --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect \
+  --output_groups=clippy_checks \
+  //:hello_world
+bazel \
+  --output_base="$temporary_root/bazel" \
+  build \
+  --aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect \
+  --output_groups=rustfmt_checks \
+  //:hello_world
+bazel --output_base="$temporary_root/bazel" run //:hello_world
+bazel --output_base="$temporary_root/bazel" run //nix:cc_toolchain_smoke
 
-path_info=$(nix path-info --json --json-format 1 "$sdk")
-case "$path_info" in
-  *'"references":[]'*) ;;
+rust_command=$(
+  bazel --output_base="$temporary_root/bazel" \
+    aquery 'mnemonic("Rustc", //:hello_world)' --output=commands
+)
+cc_link_command=$(
+  bazel --output_base="$temporary_root/bazel" \
+    aquery 'mnemonic("CppLink", //nix:cc_toolchain_smoke)' --output=commands
+)
+
+case "$rust_command" in
+  *nix_rust_toolchain*"--codegen=linker=$CC"*) ;;
   *)
-    echo "portable SDK has a non-empty Nix reference closure" >&2
-    printf '%s\n' "$path_info" >&2
+    echo "Rust did not use the Nix Rust and C/C++ toolchains" >&2
+    printf '%s\n' "$rust_command" >&2
+    exit 1
+    ;;
+esac
+case "$cc_link_command" in
+  *"$CC"*) ;;
+  *)
+    echo "C++ did not use the shell-selected compiler" >&2
+    printf '%s\n' "$cc_link_command" >&2
     exit 1
     ;;
 esac
 
-if LC_ALL=C grep -R -a -l -m1 '/nix/store/' "$sdk"; then
-  echo "portable SDK contains a Nix store path" >&2
-  exit 1
-fi
-if tar -tzf "$archive/portable-sdk.tar.gz" \
-  | grep -E '^\./(flake\.nix|flake\.lock|Cargo\.toml|src(/|$)|nix(/|$))'; then
-  echo "repository source leaked into the portable SDK archive" >&2
-  exit 1
-fi
-
-sandbox_flags=(--sandbox_block_path=/nix/store)
 if test "$(uname -s)" = Linux; then
-  sandbox_flags=(--sandbox_tmpfs_path=/nix/store)
+  : "${BAZEL_LINKOPTS:?The Linux dev shell must configure the GCC runtime RPATH}"
+  case "$rust_command:$cc_link_command" in
+    *"--codegen=link-arg=-fuse-ld=lld"*"-fuse-ld=lld"*) ;;
+    *)
+      echo "Rust and C++ did not both select LLD" >&2
+      printf '%s\n%s\n' "$rust_command" "$cc_link_command" >&2
+      exit 1
+      ;;
+  esac
+  case "$rust_command:$cc_link_command" in
+    *"$BAZEL_LINKOPTS"*"$BAZEL_LINKOPTS"*) ;;
+    *)
+      echo "Rust and C++ did not both inherit the Nix GCC runtime RPATH" >&2
+      printf '%s\n%s\n' "$rust_command" "$cc_link_command" >&2
+      exit 1
+      ;;
+  esac
 fi
 
-bazel \
-  --output_base="$temporary_root/bazel" \
-  build \
-  --repo_contents_cache= \
-  "${sandbox_flags[@]}" \
-  //:hello_world \
-  //nix:cc_toolchain_smoke
-bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= "${sandbox_flags[@]}" //:hello_world
-bazel --output_base="$temporary_root/bazel" run --repo_contents_cache= "${sandbox_flags[@]}" //nix:cc_toolchain_smoke
-
-printf 'portable SDK smoke test passed (%s, %s compressed)\n' \
-  "$(sed -n 's/^system = //p' "$archive/TOOLCHAIN-METADATA")" \
-  "$(du -h "$archive/portable-sdk.tar.gz" | cut -f1)"
+printf 'Nix/Bazel toolchain smoke test passed (%s, %s)\n' \
+  "$("$NIX_RUST_TOOLCHAIN/bin/rustc" --version)" \
+  "$("$CC" --version | sed -n '1p')"

@@ -196,24 +196,16 @@
   },
   "selectedYankedVersions": {},
   "moduleExtensions": {
-    "//nix:extensions.bzl%nix_toolchains": {
+    "//nix:extensions.bzl%nix_rust": {
       "os:linux,arch:amd64": {
-        "bzlTransitiveDigest": "mZbNhcy8sMzFZ7cuVJJqhpa2nsyoB7q7dbSR5Fdmc2c=",
-        "usagesDigest": "29519ACg0uP68rDqGSKRBgfZ5PGjkJ4wfgd/f91GFLk=",
+        "bzlTransitiveDigest": "GQfj9gki51KNOj0RNwRfcc/4WoDpr+z8ihOln7pJB4w=",
+        "usagesDigest": "eAoZK4hb3M1QVBJBFmi7vxg8/WaeF1Y8ah9GZN5rNB8=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
-          "nix_portable_toolchain": {
-            "repoRuleId": "@@//nix:extensions.bzl%_nix_portable_toolchain_repository",
+          "nix_rust_toolchain": {
+            "repoRuleId": "@@//nix:extensions.bzl%_nix_rust_toolchain_repository",
             "attributes": {
-              "build_template": "@@//nix:portable_toolchain.BUILD.bazel.tpl",
-              "flake": "@@//:flake.nix",
-              "sources": [
-                "@@//:flake.lock",
-                "@@//nix:linux_runtime_launcher.c",
-                "@@//nix:portable_toolchain.nix",
-                "@@//nix:relocate_elf.sh",
-                "@@//nix:relocate_macho.sh"
-              ]
+              "build_template": "@@//nix:rust_toolchain.BUILD.bazel.tpl"
             }
           }
         }
