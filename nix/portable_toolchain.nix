@@ -43,7 +43,7 @@ let
   lld = pkgs.llvmPackages.lld;
   gcc = pkgs.stdenv.cc.cc;
   gccLib = lib.getLib gcc;
-  libcxx = pkgs.llvmPackages.libcxx;
+  darwinLibcxx = pkgs.darwin.libcxx;
   staticCc = pkgs.pkgsStatic.stdenv.cc;
 
   linuxRuntimeLauncherSource = builtins.path {
@@ -190,6 +190,14 @@ let
           # compatibility aliases). Preserve those links instead of trying to
           # dereference them into an ordinary directory tree.
           cp -a ${pkgs.apple-sdk.sdkroot}/. "$sdk/sysroot/"
+
+          # Nixpkgs keeps the system libc++ headers and TAPI linker stubs in a
+          # separate Darwin package rather than in apple-sdk. Keep both halves
+          # together so -lc++ resolves inside the portable sysroot.
+          mkdir -p "$sdk/sysroot/usr/include/c++" "$sdk/sysroot/usr/lib"
+          cp -aL ${darwinLibcxx}/include/c++/v1 "$sdk/sysroot/usr/include/c++/"
+          cp -a ${darwinLibcxx}/lib/. "$sdk/sysroot/usr/lib/"
+
           chmod -R u+w "$sdk/sysroot"
 
           # nixpkgs augments the upstream SDK with a small number of absolute
@@ -244,11 +252,6 @@ let
                 ;;
             esac
           done < <(find "$sdk/sysroot" -type l -print0)
-
-          if test -d ${lib.getDev libcxx}/include/c++/v1; then
-            mkdir -p "$sdk/sysroot/usr/include/c++"
-            cp -aL ${lib.getDev libcxx}/include/c++/v1 "$sdk/sysroot/usr/include/c++/"
-          fi
 
           printf '%s\n' \
             '--target=${platform.rustTriple}' \
