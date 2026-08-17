@@ -190,6 +190,7 @@ let
           # compatibility aliases). Preserve those links instead of trying to
           # dereference them into an ordinary directory tree.
           cp -a ${pkgs.apple-sdk.sdkroot}/. "$sdk/sysroot/"
+          chmod -R u+w "$sdk/sysroot"
 
           # Nixpkgs keeps the system libc++ headers and TAPI linker stubs in a
           # separate Darwin package rather than in apple-sdk. Keep both halves
