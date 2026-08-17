@@ -1,0 +1,3 @@
+# The repository registers an explicit C/C++ toolchain. Avoid probing and
+# generating a second compiler configuration from the local host.
+common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1

@@ -1,0 +1,22 @@
+bazel_dep(name = "rules_rust", version = "0.73.0")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "platforms", version = "1.1.0")
+
+# Nix creates a relocatable archive; the extension materializes it as a Bazel
+# repository and registers both Rust and C/C++ toolchains over those files.
+nix_toolchains = use_extension("//nix:extensions.bzl", "nix_toolchains")
+use_repo(nix_toolchains, "nix_portable_toolchain")
+
+register_toolchains(
+    "@nix_portable_toolchain//:cc_toolchain",
+    "@nix_portable_toolchain//:rust_toolchain",
+    "@nix_portable_toolchain//:rustfmt_toolchain",
+)
+
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "Cargo.lock",
+    manifests = ["Cargo.toml"],
+)
+use_repo(crate, "crates")

@@ -1,0 +1,22 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+exports_files([
+    "flake.lock",
+])
+
+rust_binary(
+    name = "hello_world",
+    srcs = ["src/main.rs"],
+    deps = [
+        "@crates//env_logger",
+        "@crates//log",
+    ],
+)
+
+# This small C++ target makes the second half of the portable SDK observable:
+# it needs Clang, LLD, libc, libstdc++, and both families of bundled headers.
+cc_binary(
+    name = "cc_toolchain_smoke",
+    srcs = ["src/cc_toolchain_smoke.cc"],
+)
