@@ -69,7 +69,7 @@ bazel aquery 'mnemonic("Rustc", //:hello_world)' --output=commands
 bazel aquery 'mnemonic("CppLink", //nix:cc_toolchain_smoke)' --output=commands
 ```
 
-On Linux, both should contain `-fuse-ld=lld`, and the Rust command should contain `--codegen=linker=/nix/store/...-bazel-cc-toolchain/bin/cc`.
+Rust and C++ should name the same resolved linker. On Linux that is `/nix/store/...-bazel-cc-toolchain/bin/cc`, and both commands should also contain `-fuse-ld=lld`. On macOS, `rules_cc` places its generated `cc_wrapper.sh` in front of the Nix compiler.
 
 ## Verification
 

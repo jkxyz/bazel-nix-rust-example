@@ -57,26 +57,40 @@ cc_link_command=$(
   bazel --output_base="$temporary_root/bazel" \
     aquery --repo_contents_cache= 'mnemonic("CppLink", //nix:cc_toolchain_smoke)' --output=commands
 )
+rust_linker=$(
+  printf '%s\n' "$rust_command" \
+    | sed -n "s/.*--codegen=linker=\([^ ']*\).*/\1/p"
+)
 
 case "$rust_command" in
-  *nix_rust_toolchain*"--codegen=linker=$CC"*) ;;
+  *nix_rust_toolchain*) ;;
   *)
-    echo "Rust did not use the Nix Rust and C/C++ toolchains" >&2
+    echo "Rust did not use the Nix Rust toolchain" >&2
     printf '%s\n' "$rust_command" >&2
     exit 1
     ;;
 esac
+if test -z "$rust_linker"; then
+  echo "Rust did not use the resolved C/C++ linker" >&2
+  printf '%s\n' "$rust_command" >&2
+  exit 1
+fi
 case "$cc_link_command" in
-  *"$CC"*) ;;
+  *"$rust_linker"*) ;;
   *)
-    echo "C++ did not use the shell-selected compiler" >&2
-    printf '%s\n' "$cc_link_command" >&2
+    echo "Rust and C++ did not use the same resolved linker" >&2
+    printf '%s\n%s\n' "$rust_command" "$cc_link_command" >&2
     exit 1
     ;;
 esac
 
 if test "$(uname -s)" = Linux; then
   : "${BAZEL_LINKOPTS:?The Linux dev shell must configure the GCC runtime RPATH}"
+  if test "$rust_linker" != "$CC"; then
+    echo "Rust and C++ did not use the shell-selected compiler" >&2
+    printf '%s\n%s\n' "$rust_command" "$cc_link_command" >&2
+    exit 1
+  fi
   case "$rust_command:$cc_link_command" in
     *"--codegen=link-arg=-fuse-ld=lld"*"-fuse-ld=lld"*) ;;
     *)
